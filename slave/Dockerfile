@@ -70,7 +70,7 @@ RUN chmod +x /slave_entrypoint.sh
 
 VOLUME /home/jenkins/slave /etc/ssh/keys
 
-EXPOSE 22
+EXPOSE 22 2222
 
 USER jenkins
 
