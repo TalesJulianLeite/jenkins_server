@@ -1,5 +1,5 @@
 # Camada 1: Base image
-FROM tjleite87/jenkins:1.0.0
+FROM tjleite87/jenkins:1.0.1
 
 # Camada 2: Configuração inicial do sistema
 USER root

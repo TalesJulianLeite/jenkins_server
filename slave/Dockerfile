@@ -1,8 +1,11 @@
-FROM tjleite87/jenkins:1.0.0
+FROM tjleite87/jenkins:1.0.1
 
 USER root
 
-# Install packages and configure repositories
+# Configura ambiente não-interativo para apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Etapa 1: Atualizar sources.list e instalar dependências básicas (CORRIGIDO)
 RUN apt-get update && \
     apt-get install -y \
         git \
@@ -13,64 +16,68 @@ RUN apt-get update && \
         gnupg \
         openssh-server \
         net-tools \
-        jq && \
-    # Docker repo
+        jq \
+        wget && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Etapa 2: Configurar repositórios adicionais
+RUN mkdir -p /etc/apt/keyrings && \
     curl -fsSLo /usr/share/keyrings/docker-archive-keyring.asc \
         https://download.docker.com/linux/debian/gpg && \
     echo "deb [arch=$(dpkg --print-architecture) \
         signed-by=/usr/share/keyrings/docker-archive-keyring.asc] \
         https://download.docker.com/linux/debian \
         $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
-    # Adoptium repo
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | \
-        gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] \
+    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | \
+        gpg --dearmor -o /etc/apt/trusted.gpg.d/adoptium.gpg && \
+    echo "deb [signed-by=/etc/apt/trusted.gpg.d/adoptium.gpg] \
         https://packages.adoptium.net/artifactory/deb \
-        $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | \
-        tee /etc/apt/sources.list.d/adoptium.list && \
-    # Install runtime packages
-    apt-get update && \
-    apt-get install -y \
+        $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
+        > /etc/apt/sources.list.d/adoptium.list
+
+# Etapa 3: Instalar pacotes principais
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         temurin-17-jdk \
         docker-ce-cli && \
-    # Cleanup
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    unset DEBIAN_FRONTEND
 
-# Configure Jenkins user
-RUN mkdir -p /home/jenkins && \
-    useradd -m -d /home/jenkins/slave -s /bin/bash jenkins && \
-    echo "jenkins:jenkins" | chpasswd && \
+# Configurar usuário Jenkins
+RUN id -u jenkins >/dev/null 2>&1 || ( \
+    groupadd -g 1000 jenkins && \
+    useradd -m -d /home/jenkins -u 1000 -g 1000 -s /bin/bash jenkins ) && \
     mkdir -p /home/jenkins/slave/.ssh && \
-    chown -R jenkins:jenkins /home/jenkins/slave && \
+    chown -R jenkins:jenkins /home/jenkins && \
     chmod 700 /home/jenkins/slave/.ssh && \
-    # Sudo configuration
     echo "jenkins ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/jenkins && \
-    chmod 440 /etc/sudoers.d/jenkins
+    chmod 440 /etc/sudoers.d/jenkins && \
+    echo "jenkins:jenkins" | chpasswd
 
-# SSH configuration
+# Configuração SSH
 RUN mkdir -p /etc/ssh/keys && \
     ssh-keygen -A -f /etc/ssh/keys
 
-# Automatic connection setup
-COPY automatic_agent_setup.sh /usr/local/bin/automatic_agent_setup.sh
+# Configuração automática
+COPY --chown=jenkins:jenkins automatic_agent_setup.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/automatic_agent_setup.sh
 
-# Environment setup
+# Variáveis de ambiente
 ENV JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64 \
     PATH=$JAVA_HOME/bin:$PATH \
     JENKINS_MASTER_URL=http://jenkins-master:8080 \
     JENKINS_AGENT_NAME=jenkins-slave \
     JENKINS_AGENT_WORKDIR=/home/jenkins/slave/workspace
 
-# Entrypoint setup
-COPY slave_entrypoint.sh /slave_entrypoint.sh
+# Entrypoint
+COPY --chown=jenkins:jenkins slave_entrypoint.sh /slave_entrypoint.sh
 RUN chmod +x /slave_entrypoint.sh
 
 VOLUME /home/jenkins/slave /etc/ssh/keys
 
-EXPOSE 22 2222
+EXPOSE 22
 
 USER jenkins
 
