@@ -59,7 +59,7 @@ ENV JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64 \
     PATH=$JAVA_HOME/bin:$PATH \
     JENKINS_HOME=/var/jenkins_home
 
-COPY --chown=jenkins:jenkins init.groovy.d/ /var/jenkins_home/init.groovy.d/
+COPY --chown=jenkins:jenkins ../init.groovy.d/ /var/jenkins_home/init.groovy.d/
 
 USER jenkins
 

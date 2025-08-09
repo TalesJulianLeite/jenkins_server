@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  jenkins-blueocean:
-    image: tjleite87/jenkins:1.0.0
-    container_name: jenkins-blueocean
+  jenkins-master:
+    image: tjleite87/jenkins:1.0.3
+    container_name: jenkins-master
     restart: on-failure
     networks:
       - jenkins
@@ -17,11 +17,56 @@ services:
     volumes:
       - jenkins-data:/var/jenkins_home
       - jenkins-docker-certs:/certs/client:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # Adicionado para permitir Docker-in-Docker
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Tempo adicional para inicialização
+
+  jenkins-slave:
+    image: tjleite87/jenkins-slave:1.0.4
+    container_name: jenkins-slave
+    hostname: jenkins-slave
+    restart: unless-stopped
+    depends_on:
+      jenkins-master:
+        condition: service_healthy
+    ports:
+      - "2222:22"
+    environment:
+      - AUTO_REGISTER_AGENT=true
+      - JENKINS_MASTER_URL=http://jenkins-master:8080
+      - JENKINS_AGENT_NAME=jenkins-slave
+      - JENKINS_AGENT_WORKDIR=/home/jenkins/slave  # Atualizado para caminho absoluto
+      - JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64
+    volumes:
+      - type: bind
+        source: ./jenkins-slave-data
+        target: /home/jenkins/slave
+      - type: bind
+        source: ./jenkins-slave-ssh
+        target: /etc/ssh/keys
+      - type: bind  # Novo volume para persistir a chave pública
+        source: ./jenkins-slave-ssh-keys
+        target: /ssh-keys-persistent
+    ulimits: # Ajuste para evitar problemas de recursos
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - jenkins
 
 volumes:
   jenkins-data:
   jenkins-docker-certs:
+  jenkins-slave-data:
+  jenkins-slave-ssh:
+  jenkins-slave-ssh-keys:
 
 networks:
   jenkins:
     driver: bridge
+    attachable: true  # Permite conectar containers manualmente

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  jenkins-master:
+    image: tjleite87/jenkins:1.0.1
+    container_name: jenkins-master
+    restart: on-failure
+    networks:
+      - jenkins
+    environment:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_CERT_PATH: /certs/client
+      DOCKER_TLS_VERIFY: "1"
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      - jenkins-docker-certs:/certs/client:ro
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  jenkins-data:
+  jenkins-docker-certs:
+
+networks:
+  jenkins:
+    driver: bridge

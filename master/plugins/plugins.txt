@@ -1,0 +1,7 @@
+blueocean
+docker-workflow
+ssh-slaves
+pipeline-aws
+credentials-binding
+git
+workflow-aggregator
