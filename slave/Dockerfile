@@ -64,14 +64,18 @@ RUN getent group jenkins || groupadd -g 1000 jenkins && \
     echo "%sudo ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/sudo-group
 
 # Configuração SSH
-RUN apt-get update && apt-get install -y openssh-server && \
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server && \
     mkdir -p /etc/ssh/keys && \
+    mkdir -p /ssh-keys-persistent && \
+    # Gera chaves RSA e ED25519 explicitamente
     ssh-keygen -t rsa -b 4096 -f /etc/ssh/keys/ssh_host_rsa_key -N "" && \
     ssh-keygen -t ed25519 -f /etc/ssh/keys/ssh_host_ed25519_key -N "" && \
-    mkdir -p /ssh-keys-persistent && \
-    cp /etc/ssh/keys/* /ssh-keys-persistent/ && \
-    chmod 600 /etc/ssh/keys/*_key && \
-    chmod 644 /etc/ssh/keys/*.pub
+    # Copia chaves para persistência
+    cp /etc/ssh/keys/ssh_host_* /ssh-keys-persistent/ && \
+    # Aplica permissões corretas
+    chmod 600 /etc/ssh/keys/*_key /ssh-keys-persistent/*_key && \
+    chmod 644 /etc/ssh/keys/*.pub /ssh-keys-persistent/*.pub && \
+    chown root:root /etc/ssh/keys/* /ssh-keys-persistent/*
 
 # Scripts de configuração
 COPY --chown=root:root restore-ssh-keys.sh /usr/local/bin/
@@ -96,7 +100,7 @@ VOLUME /ssh-keys-persistent
 
 EXPOSE 22
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD netstat -tuln | grep -q ':22' || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+    CMD ss -tuln | grep -q ':22' || exit 1
 
 ENTRYPOINT ["/bin/bash", "-c", "restore-ssh-keys.sh && /slave_entrypoint.sh"]

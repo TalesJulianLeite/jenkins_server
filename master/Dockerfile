@@ -63,4 +63,4 @@ COPY --chown=jenkins:jenkins ../init.groovy.d/ /var/jenkins_home/init.groovy.d/
 
 USER jenkins
 
-EXPOSE 8080 50000
+EXPOSE 8080 50000 22 4243
