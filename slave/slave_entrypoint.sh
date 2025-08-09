@@ -1,23 +1,18 @@
 #!/bin/bash
-set -e
 
-# Initialize SSH
-mkdir -p /home/jenkins/slave/.ssh
-chmod 700 /home/jenkins/slave/.ssh
-chown -R jenkins:jenkins /home/jenkins/slave
-
-# Start SSH in background
-/usr/sbin/sshd -D -e &
+# Inicia serviços como root
+service ssh start
 
 # Wait for SSH to be ready
 while ! netstat -tuln | grep -q ':22'; do
     sleep 1
 done
 
-# Automatic agent registration
-if [ "$AUTO_REGISTER_AGENT" = "true" ]; then
-    /usr/local/bin/automatic_agent_setup.sh
-fi
+# Executa script de configuração automática
+/usr/local/bin/automatic_agent_setup.sh
+
+# Troca para usuário jenkins e executa o comando principal
+exec gosu jenkins "$@"
 
 # Keep container running
-tail -f /dev/null
+#tail -f /dev/null
