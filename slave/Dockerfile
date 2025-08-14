@@ -22,29 +22,22 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Etapa 2: Configurar repositórios adicionais
-RUN apt-get update && apt-get upgrade -y && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gnupg2 && \
+    # Docker
     mkdir -p /etc/apt/keyrings && \
-    # Repositório Docker
-    curl -fsSLo /usr/share/keyrings/docker-archive-keyring.asc \
-        https://download.docker.com/linux/debian/gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) \
-        signed-by=/usr/share/keyrings/docker-archive-keyring.asc] \
-        https://download.docker.com/linux/debian \
-        $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
-    # Repositório Adoptium
-    apt-get update && \
-    apt-get install -y --no-install-recommends apt-transport-https && \
-    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | \
-        gpg --batch --dearmor -o /usr/share/keyrings/adoptium.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] \
-        https://packages.adoptium.net/artifactory/deb \
-        $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
+    # Adoptium
+    curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public > /etc/apt/keyrings/adoptium.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] \
+        https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
         > /etc/apt/sources.list.d/adoptium.list && \
     apt-get update
 
 # Etapa 3: Instalar pacotes principais
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+RUN apt-get install -y --no-install-recommends \
         temurin-17-jdk \
         docker-ce-cli && \
     apt-get clean && \
@@ -82,22 +75,33 @@ COPY --chown=root:root restore-ssh-keys.sh /usr/local/bin/
 COPY --chown=jenkins:jenkins automatic_agent_setup.sh /usr/local/bin/
 COPY --chown=root:root slave_entrypoint.sh /
 
-RUN chmod +x /usr/local/bin/restore-ssh-keys.sh /usr/local/bin/automatic_agent_setup.sh /slave_entrypoint.sh
+RUN chmod +x /usr/local/bin/restore-ssh-keys.sh \
+             /usr/local/bin/automatic_agent_setup.sh \
+             /slave_entrypoint.sh
 
-USER jenkins
+# Configuração do SSH
+RUN mkdir -p /run/sshd && \
+    chmod 755 /run/sshd && \
+    # Configuração segura do SSH
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 
 # Variáveis de ambiente
 ENV JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64 \
     PATH=$JAVA_HOME/bin:$PATH \
     JENKINS_AGENT_WORKDIR=/home/jenkins/slave \
     JENKINS_MASTER_URL=http://jenkins-master:8080 \
-    JENKINS_AGENT_NAME=jenkins-slave
+    JENKINS_AGENT_NAME=jenkins-slave \
+    AUTO_REGISTER_AGENT=true
 
 # Volumes
 VOLUME /home/jenkins/slave
 VOLUME /etc/ssh/keys
 VOLUME /ssh-keys-persistent
+VOLUME /etc/apt/keyrings
+VOLUME /etc/apt/sources.list.d
 
+# Expoe a porta 22
 EXPOSE 22
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \

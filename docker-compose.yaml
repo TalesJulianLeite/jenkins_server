@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   jenkins-master:
-    image: tjleite87/jenkins:1.0.3
+    image: tjleite87/jenkins:1.0.6
     container_name: jenkins-master
     restart: on-failure
     networks:
@@ -26,15 +26,14 @@ services:
       start_period: 60s  # Tempo adicional para inicialização
 
   jenkins-slave:
-    image: tjleite87/jenkins-slave:1.0.4
+    image: tjleite87/jenkins-slave:1.0.6
     container_name: jenkins-slave
     hostname: jenkins-slave
     restart: unless-stopped
     depends_on:
-      jenkins-master:
-        condition: service_healthy
+      - jenkins-master
     ports:
-      - "2222:22"
+      - "22:22"
     environment:
       - AUTO_REGISTER_AGENT=true
       - JENKINS_MASTER_URL=http://jenkins-master:8080
