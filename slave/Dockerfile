@@ -1,110 +1,66 @@
-# Use apenas um FROM (escolha a imagem base correta)
-FROM tjleite87/jenkins-slave:1.0.1
+FROM jenkins/ssh-agent:latest-jdk17
 
 USER root
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Etapa 1: Atualizar sources.list e instalar dependências básicas
+# 1. Configuração do repositório Docker
 RUN apt-get update && \
-    apt-get install -y \
-        git \
-        lsb-release \
+    apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
-        sudo \
-        gnupg \
+        gnupg && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    chmod a+r /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+        $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update
+
+# 2. Instalação de dependências
+RUN apt-get install -y --no-install-recommends \
+        docker-ce-cli \
         openssh-server \
-        net-tools \
-        jq \
-        wget \
-        software-properties-common && \
+        git \
+        make \
+        build-essential && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Etapa 2: Configurar repositórios adicionais
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gnupg2 && \
-    # Docker
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-        https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
-    # Adoptium
-    curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public > /etc/apt/keyrings/adoptium.asc && \
-    echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] \
-        https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
-        > /etc/apt/sources.list.d/adoptium.list && \
-    apt-get update
+# 3. Configuração do diretório principal
+RUN mkdir -p /home/jenkins/slave && \
+    chown jenkins:jenkins /home/jenkins/slave
 
-# Etapa 3: Instalar pacotes principais
-RUN apt-get install -y --no-install-recommends \
-        temurin-17-jdk \
-        docker-ce-cli && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    unset DEBIAN_FRONTEND
-
-# Configurar usuário Jenkins
-RUN getent group jenkins || groupadd -g 1000 jenkins && \
-    getent passwd jenkins || useradd -m -d /home/jenkins -u 1000 -g 1000 -s /bin/bash jenkins && \
-    getent group sudo || groupadd sudo && \
-    usermod -aG sudo jenkins && \
-    mkdir -p /home/jenkins/slave/.ssh && \
-    chown -R jenkins:jenkins /home/jenkins && \
-    chmod 700 /home/jenkins/slave/.ssh && \
-    echo "jenkins ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/jenkins && \
-    chmod 440 /etc/sudoers.d/jenkins && \
-    echo "%sudo ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/sudo-group
-
-# Configuração SSH
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server && \
-    mkdir -p /etc/ssh/keys && \
-    mkdir -p /ssh-keys-persistent && \
-    # Gera chaves RSA e ED25519 explicitamente
-    ssh-keygen -t rsa -b 4096 -f /etc/ssh/keys/ssh_host_rsa_key -N "" && \
+# 4. Configuração do SSH
+RUN mkdir -p /etc/ssh/keys && \
     ssh-keygen -t ed25519 -f /etc/ssh/keys/ssh_host_ed25519_key -N "" && \
-    # Copia chaves para persistência
-    cp /etc/ssh/keys/ssh_host_* /ssh-keys-persistent/ && \
-    # Aplica permissões corretas
-    chmod 600 /etc/ssh/keys/*_key /ssh-keys-persistent/*_key && \
-    chmod 644 /etc/ssh/keys/*.pub /ssh-keys-persistent/*.pub && \
-    chown root:root /etc/ssh/keys/* /ssh-keys-persistent/*
+    ssh-keygen -t rsa -b 4096 -f /etc/ssh/keys/ssh_host_rsa_key -N "" && \
+    chown jenkins:jenkins /etc/ssh/keys/* && \
+    chmod 600 /etc/ssh/keys/*_key && \
+    chmod 644 /etc/ssh/keys/*.pub
 
-# Scripts de configuração
-COPY --chown=root:root restore-ssh-keys.sh /usr/local/bin/
-COPY --chown=jenkins:jenkins automatic_agent_setup.sh /usr/local/bin/
-COPY --chown=root:root slave_entrypoint.sh /
+# 5. Configuração do Docker
+RUN groupadd -g 998 docker && \
+    usermod -aG docker jenkins && \
+    # Adiciona verificação para Docker-in-Docker
+    [ -S /var/run/docker.sock ] && chown root:docker /var/run/docker.sock || true
 
-RUN chmod +x /usr/local/bin/restore-ssh-keys.sh \
-             /usr/local/bin/automatic_agent_setup.sh \
-             /slave_entrypoint.sh
+# 6. Cópia dos scripts
+COPY ./scripts/ /usr/local/bin/
+RUN chmod +x /usr/local/bin/slave-entrypoint.sh && \
+    chmod +x /usr/local/bin/restore-ssh-keys.sh && \
+    chown jenkins:jenkins /usr/local/bin/*
 
-# Configuração do SSH
-RUN mkdir -p /run/sshd && \
-    chmod 755 /run/sshd && \
-    # Configuração segura do SSH
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+# 7. Configuração final
+USER jenkins
+WORKDIR /home/jenkins/slave
 
-# Variáveis de ambiente
-ENV JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64 \
-    PATH=$JAVA_HOME/bin:$PATH \
-    JENKINS_AGENT_WORKDIR=/home/jenkins/slave \
-    JENKINS_MASTER_URL=http://jenkins-master:8080 \
-    JENKINS_AGENT_NAME=jenkins-slave \
-    AUTO_REGISTER_AGENT=true
+ENV JENKINS_AGENT_WORKDIR=/home/jenkins/slave \
+    PATH="/home/jenkins/.local/bin:${PATH}"
 
-# Volumes
-VOLUME /home/jenkins/slave
-VOLUME /etc/ssh/keys
-VOLUME /ssh-keys-persistent
-VOLUME /etc/apt/keyrings
-VOLUME /etc/apt/sources.list.d
+HEALTHCHECK --interval=30s --timeout=10s \
+    CMD ps aux | grep '[j]ava.*agent' || exit 1
 
-# Expoe a porta 22
-EXPOSE 22
+EXPOSE 22 2222
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
-    CMD ss -tuln | grep -q ':22' || exit 1
-
-ENTRYPOINT ["/bin/bash", "-c", "restore-ssh-keys.sh && /slave_entrypoint.sh"]
+ENTRYPOINT ["slave-entrypoint.sh"]

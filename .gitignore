@@ -18,3 +18,7 @@
 *.iws
 *.iml
 *.ipr
+.lib
+.jenkins-slave-data
+.jenkins-slave-ssh
+.jenkins-slave-ssh-keys
