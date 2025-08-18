@@ -27,11 +27,15 @@ RUN apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. Configuração do diretório principal
-RUN mkdir -p /home/jenkins/slave && \
-    chown jenkins:jenkins /home/jenkins/slave
+# 3. Garantir que o usuário jenkins existe antes de usar
+RUN id jenkins || (groupadd -g 1000 jenkins && \
+    useradd -u 1000 -g jenkins -d /home/jenkins -m jenkins)
 
-# 4. Configuração do SSH
+# 4. Agora sim criar o diretório com as permissões corretas
+RUN mkdir -p /home/jenkins/slave && \
+    chown jenkins:jenkins /home/jenkins/slave && \
+    chmod 755 /home/jenkins/slave
+# 5. Configuração do SSH
 RUN mkdir -p /etc/ssh/keys && \
     ssh-keygen -t ed25519 -f /etc/ssh/keys/ssh_host_ed25519_key -N "" && \
     ssh-keygen -t rsa -b 4096 -f /etc/ssh/keys/ssh_host_rsa_key -N "" && \
@@ -39,19 +43,19 @@ RUN mkdir -p /etc/ssh/keys && \
     chmod 600 /etc/ssh/keys/*_key && \
     chmod 644 /etc/ssh/keys/*.pub
 
-# 5. Configuração do Docker
+# 6. Configuração do Docker
 RUN groupadd -g 998 docker && \
     usermod -aG docker jenkins && \
     # Adiciona verificação para Docker-in-Docker
     [ -S /var/run/docker.sock ] && chown root:docker /var/run/docker.sock || true
 
-# 6. Cópia dos scripts
+# 7. Cópia dos scripts
 COPY ./scripts/ /usr/local/bin/
 RUN chmod +x /usr/local/bin/slave-entrypoint.sh && \
     chmod +x /usr/local/bin/restore-ssh-keys.sh && \
     chown jenkins:jenkins /usr/local/bin/*
 
-# 7. Configuração final
+# 8. Configuração final
 USER jenkins
 WORKDIR /home/jenkins/slave
 
